@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   gamesToday,
@@ -24,39 +25,39 @@ const settingsSchema = z.object({
   sportsbooks: z.array(z.string()).optional()
 });
 
-mlbRouter.get("/games/today", (_req, res) => {
+mlbRouter.get("/games/today", (_req: Request, res: Response) => {
   res.json(gamesToday);
 });
 
-mlbRouter.get("/odds/today", (_req, res) => {
+mlbRouter.get("/odds/today", (_req: Request, res: Response) => {
   res.json(oddsToday);
 });
 
-mlbRouter.post("/parlays/generate", (_req, res) => {
+mlbRouter.post("/parlays/generate", (_req: Request, res: Response) => {
   currentPickPool = generatePickPool();
   currentParlays = generateDailyParlays(currentPickPool);
   res.json(currentParlays);
 });
 
-mlbRouter.get("/parlays/generate", (_req, res) => {
+mlbRouter.get("/parlays/generate", (_req: Request, res: Response) => {
   currentPickPool = generatePickPool();
   currentParlays = generateDailyParlays(currentPickPool);
   res.json(currentParlays);
 });
 
-mlbRouter.get("/parlays/today", (_req, res) => {
+mlbRouter.get("/parlays/today", (_req: Request, res: Response) => {
   res.json(currentParlays);
 });
 
-mlbRouter.get("/picks/top", (_req, res) => {
+mlbRouter.get("/picks/top", (_req: Request, res: Response) => {
   res.json(currentPickPool.filter((pick) => pick.confidenceLabel !== "Avoid / No Bet").slice(0, 20));
 });
 
-mlbRouter.get("/picks/top-2-hit-candidates", (_req, res) => {
+mlbRouter.get("/picks/top-2-hit-candidates", (_req: Request, res: Response) => {
   res.json(topTwoHitCandidates);
 });
 
-mlbRouter.get("/player/:id/matchup", (req, res) => {
+mlbRouter.get("/player/:id/matchup", (req: Request, res: Response) => {
   const pick = currentPickPool.find((candidate) => candidate.playerId === req.params.id || candidate.id === req.params.id);
   if (!pick) {
     res.status(404).json({ error: "Player matchup not found in mock slate" });
@@ -76,7 +77,7 @@ mlbRouter.get("/player/:id/matchup", (req, res) => {
   });
 });
 
-mlbRouter.get("/stadium/:id/splits", (req, res) => {
+mlbRouter.get("/stadium/:id/splits", (req: Request, res: Response) => {
   const split = stadiumSplits.find((stadium) => stadium.id === req.params.id);
   if (!split) {
     res.status(404).json({ error: "Stadium split not found" });
@@ -86,11 +87,11 @@ mlbRouter.get("/stadium/:id/splits", (req, res) => {
   res.json(split);
 });
 
-mlbRouter.get("/settings", (_req, res) => {
+mlbRouter.get("/settings", (_req: Request, res: Response) => {
   res.json({ ...currentSettings, modelPerformance });
 });
 
-mlbRouter.post("/settings", (req, res) => {
+mlbRouter.post("/settings", (req: Request, res: Response) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });

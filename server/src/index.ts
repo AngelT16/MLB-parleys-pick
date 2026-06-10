@@ -1,6 +1,7 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import type { Request, Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mlbRouter } from "./routes.js";
@@ -15,9 +16,9 @@ const clientDistPath = path.resolve(__dirname, "../../client/dist");
 app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173" }));
 app.use(express.json());
 app.use("/api/mlb", mlbRouter);
-app.get("/health", (_req, res) => res.json({ ok: true, service: "MLB Parleys Pick API" }));
+app.get("/health", (_req: Request, res: Response) => res.json({ ok: true, service: "MLB Parleys Pick API" }));
 app.use(express.static(clientDistPath));
-app.get(/.*/, (_req, res) => {
+app.get(/.*/, (_req: Request, res: Response) => {
   res.sendFile(path.join(clientDistPath, "index.html"));
 });
 
