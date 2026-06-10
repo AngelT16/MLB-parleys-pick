@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "rYORYEqG_yaW0_uap6ArE"
+uri = "file://artifacts/plain-page/public/light.jpg"
+type = "image"
+title = "sunlight window shadow minimal wall"
+
+[[outputs]]
+id = "orDPAXxJFIgUHokQc-cl7"
+uri = "file://artifacts/plain-page/public/texture.jpg"
+type = "image"
+title = "blank textured paper abstract"
