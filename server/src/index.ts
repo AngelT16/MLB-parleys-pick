@@ -1,27 +1,27 @@
-import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
-import type { Request, Response } from "express";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { mlbRouter } from "./routes.js";
-
-dotenv.config();
+import cors from "cors";
+import { router } from "./routes.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const clientDistPath = path.resolve(__dirname, "../../client/dist");
+const clientOrigin = process.env.CLIENT_ORIGIN;
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173" }));
+app.use(
+  cors(
+    clientOrigin
+      ? { origin: [clientOrigin, /\.replit\.dev$/, /\.replit\.app$/] }
+      : { origin: true }
+  )
+);
 app.use(express.json());
-app.use("/api/mlb", mlbRouter);
-app.get("/health", (_req: Request, res: Response) => res.json({ ok: true, service: "MLB Parleys Pick API" }));
-app.use(express.static(clientDistPath));
-app.get(/.*/, (_req: Request, res: Response) => {
-  res.sendFile(path.join(clientDistPath, "index.html"));
+
+app.use("/api", router);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
-app.listen(port, () => {
-  console.log(`MLB Parleys Pick API listening on http://localhost:${port}`);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`[server] MLB Parleys Pick API listening on http://0.0.0.0:${port}`);
+  console.log(`[server] Mock mode: ${process.env.MOCK_MODE !== "false" ? "ON" : "OFF"}`);
 });

@@ -1,80 +1,98 @@
-import type { Parlay, Pick } from "./types.js";
+import type { AppSettings, Parlay, PickLeg, RiskMode } from "../types.js";
+import { applyCorrelationPenalty } from "./correlation.js";
+import { americanToDecimal, decimalToAmerican, round } from "./odds.js";
 
-type Profile = Parlay["profile"];
-
-const profileConfig: Record<Profile, { name: string; minScore: number; risk: Parlay["riskRating"]; sort: (pick: Pick) => number }> = {
-  Conservative: {
-    name: "Parlay A Conservative",
-    minScore: 76,
-    risk: "Low",
-    sort: (pick) => pick.modelProbability * 1.25 + pick.edge * 1.7 - Math.max(0, pick.odds) / 6000
-  },
-  Balanced: {
-    name: "Parlay B Balanced",
-    minScore: 70,
-    risk: "Medium",
-    sort: (pick) => pick.modelProbability * 0.8 + pick.edge * 2.2 + Math.max(0, pick.odds) / 8000
-  },
-  Aggressive: {
-    name: "Parlay C Aggressive",
-    minScore: 64,
-    risk: "High",
-    sort: (pick) => pick.edge * 2.8 + Math.max(0, pick.odds) / 2600 + pick.modelProbability * 0.35
-  }
-};
-
-function decimalOdds(odds: number) {
-  return odds > 0 ? odds / 100 + 1 : 100 / Math.abs(odds) + 1;
+interface ProfileConfig {
+  type: RiskMode;
+  name: string;
+  minProbability: number;
+  minEdge: number;
+  sortKey: (leg: PickLeg) => number;
 }
 
-function americanFromDecimal(decimal: number) {
-  return Math.round((decimal - 1) * 100);
-}
+const PROFILES: ProfileConfig[] = [
+  {
+    type: "conservative",
+    name: "Parlay A - Conservative",
+    minProbability: 0.6,
+    minEdge: 0.01,
+    // Highest probability first; edge breaks ties.
+    sortKey: (l) => l.modelProbability * 100 + l.edge * 40,
+  },
+  {
+    type: "balanced",
+    name: "Parlay B - Balanced",
+    minProbability: 0.5,
+    minEdge: 0.015,
+    // Blend of confidence, probability and payout.
+    sortKey: (l) => l.confidenceScore + l.modelProbability * 30 + l.edge * 120,
+  },
+  {
+    type: "aggressive",
+    name: "Parlay C - Aggressive",
+    minProbability: 0.4,
+    minEdge: 0.02,
+    // Edge-weighted payout hunting, still requires positive edge.
+    sortKey: (l) => l.edge * 250 + americanToDecimal(l.odds) * 12 + l.confidenceScore * 0.3,
+  },
+];
 
-function buildParlay(pool: Pick[], profile: Profile, usedPlayerCounts: Map<string, number>): Parlay {
-  const config = profileConfig[profile];
-  const gameCounts = new Map<string, number>();
-  const legs: Pick[] = [];
-
-  const sorted = [...pool]
-    .filter((pick) => pick.edge > 0.018 && pick.confidenceScore >= config.minScore && pick.confidenceLabel !== "Avoid / No Bet")
-    .sort((a, b) => config.sort(b) - config.sort(a));
-
-  for (const pick of sorted) {
-    const currentGameCount = gameCounts.get(pick.gameId) ?? 0;
-    const playerRepeats = pick.player ? (usedPlayerCounts.get(pick.player) ?? 0) : 0;
-    const sameGameLimit = profile === "Aggressive" ? 3 : 2;
-
-    if (legs.length >= 10) break;
-    if (currentGameCount >= sameGameLimit) continue;
-    if (playerRepeats >= 2) continue;
-    if (legs.some((leg) => leg.player && leg.player === pick.player)) continue;
-    if (profile !== "Aggressive" && pick.riskNotes.length > 1 && pick.confidenceScore < 82) continue;
-
-    legs.push(pick);
-    gameCounts.set(pick.gameId, currentGameCount + 1);
-    if (pick.player) usedPlayerCounts.set(pick.player, playerRepeats + 1);
-  }
-
-  const probability = legs.reduce((acc, leg) => acc * leg.modelProbability, 1);
-  const decimal = legs.reduce((acc, leg) => acc * decimalOdds(leg.odds), 1);
-  const averageEdge = legs.length ? legs.reduce((sum, leg) => sum + leg.edge, 0) / legs.length : 0;
-
+function combineLegs(legs: PickLeg[], type: RiskMode, name: string): Parlay {
+  const combinedDecimal = legs.reduce((acc, l) => acc * americanToDecimal(l.odds), 1);
+  const modelProbability = legs.reduce((acc, l) => acc * l.modelProbability, 1);
+  const impliedProbability = 1 / combinedDecimal;
   return {
-    id: profile.toLowerCase(),
-    name: config.name,
-    profile,
+    id: `${type}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    type,
+    name,
     legs,
-    estimatedProbability: Number(probability.toFixed(4)),
-    combinedOdds: americanFromDecimal(decimal),
-    projectedEdge: Number(averageEdge.toFixed(4)),
-    riskRating: config.risk
+    combinedOdds: decimalToAmerican(combinedDecimal),
+    combinedDecimal: round(combinedDecimal, 2),
+    modelProbability: round(modelProbability),
+    impliedProbability: round(impliedProbability),
+    edge: round(modelProbability - impliedProbability),
+    generatedAt: new Date().toISOString(),
   };
 }
 
-export function generateDailyParlays(pool: Pick[]): Parlay[] {
-  const usedPlayerCounts = new Map<string, number>();
-  return (["Conservative", "Balanced", "Aggressive"] as const).map((profile) =>
-    buildParlay(pool, profile, usedPlayerCounts)
-  );
+function buildParlayForProfile(pool: PickLeg[], profile: ProfileConfig, settings: AppSettings): Parlay {
+  const minProbability = Math.max(profile.minProbability, settings.minProbability);
+  const minEdge = Math.max(profile.minEdge, settings.minEdge);
+
+  const eligible = pool
+    .filter((l) => l.confidenceLabel !== "Avoid")
+    .filter((l) => l.modelProbability >= minProbability)
+    .filter((l) => l.edge >= minEdge)
+    .sort((a, b) => profile.sortKey(b) - profile.sortKey(a));
+
+  const chosen: PickLeg[] = [];
+  const perGame = new Map<string, number>();
+
+  for (const candidate of eligible) {
+    if (chosen.length >= settings.maxLegs) break;
+
+    const gameCount = perGame.get(candidate.gameId) ?? 0;
+    if (gameCount >= settings.maxPicksPerGame) continue;
+
+    const { adjustedScore, blocked } = applyCorrelationPenalty(chosen, candidate, settings.allowCorrelation);
+    if (blocked) continue;
+    // Allow correlated legs only while they still grade as playable after the penalty.
+    if (adjustedScore < 55) continue;
+
+    chosen.push(candidate);
+    perGame.set(candidate.gameId, gameCount + 1);
+  }
+
+  // Never pad with bad picks: if we cannot reach minLegs with edge-positive
+  // selections, ship the best parlay we have rather than inventing legs.
+  return combineLegs(chosen, profile.type, profile.name);
+}
+
+/**
+ * Generate the three daily parlays (conservative / balanced / aggressive)
+ * from a scored pick pool. Only edge-positive, non-Avoid picks are used;
+ * markets are never forced - the best board wins regardless of market mix.
+ */
+export function generateParlays(pool: PickLeg[], settings: AppSettings): Parlay[] {
+  return PROFILES.map((profile) => buildParlayForProfile(pool, profile, settings));
 }

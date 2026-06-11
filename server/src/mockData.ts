@@ -1,524 +1,349 @@
-import type { RawPickInput } from "./scoring/types.js";
+import type {
+  Batter,
+  BatterWindow,
+  Game,
+  ModelPerformance,
+  Pitcher,
+  Stadium,
+  Team,
+  TrackedBet,
+  Weather,
+} from "./types.js";
 
-export const gamesToday = [
-  {
-    id: "nyy-bos",
-    awayTeam: "NYY",
-    homeTeam: "BOS",
-    venue: "Fenway Park",
-    startTime: "7:10 PM ET",
-    probablePitchers: { away: "Gerrit Cole", home: "Brayan Bello" },
-    weather: { temp: 72, wind: "9 mph out to LF", impact: "Boosts right-handed pull power" },
-    lineupsConfirmed: true,
-    total: 8.5
-  },
-  {
-    id: "lad-sd",
-    awayTeam: "LAD",
-    homeTeam: "SD",
-    venue: "Petco Park",
-    startTime: "8:40 PM ET",
-    probablePitchers: { away: "Tyler Glasnow", home: "Dylan Cease" },
-    weather: { temp: 67, wind: "6 mph in from CF", impact: "Suppresses carry" },
-    lineupsConfirmed: true,
-    total: 7.5
-  },
-  {
-    id: "atl-phi",
-    awayTeam: "ATL",
-    homeTeam: "PHI",
-    venue: "Citizens Bank Park",
-    startTime: "6:45 PM ET",
-    probablePitchers: { away: "Spencer Strider", home: "Zack Wheeler" },
-    weather: { temp: 80, wind: "11 mph out to RF", impact: "Home-run friendly" },
-    lineupsConfirmed: false,
-    total: 8
-  },
-  {
-    id: "hou-tex",
-    awayTeam: "HOU",
-    homeTeam: "TEX",
-    venue: "Globe Life Field",
-    startTime: "8:05 PM ET",
-    probablePitchers: { away: "Framber Valdez", home: "Nathan Eovaldi" },
-    weather: { temp: 76, wind: "Roof likely closed", impact: "Neutral run environment" },
-    lineupsConfirmed: true,
-    total: 8.5
-  },
-  {
-    id: "sea-tor",
-    awayTeam: "SEA",
-    homeTeam: "TOR",
-    venue: "Rogers Centre",
-    startTime: "7:07 PM ET",
-    probablePitchers: { away: "Logan Gilbert", home: "Kevin Gausman" },
-    weather: { temp: 70, wind: "Roof controlled", impact: "Stable conditions" },
-    lineupsConfirmed: false,
-    total: 7
+/** Mulberry32 seeded PRNG - mock data is stable for a given day. */
+function createRng(seed: number) {
+  let a = seed >>> 0;
+  return function rng(): number {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seedFromString(s: string): number {
+  let h = 1779033703;
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
   }
+  return h >>> 0;
+}
+
+type Rng = () => number;
+const pick = <T>(rng: Rng, arr: T[]): T => arr[Math.floor(rng() * arr.length)];
+const between = (rng: Rng, min: number, max: number) => min + rng() * (max - min);
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+interface TeamSeed {
+  abbr: string;
+  city: string;
+  name: string;
+  stadium: string;
+  hitFactor: number;
+  runFactor: number;
+  hrFactor: number;
+  roof: Stadium["roof"];
+}
+
+const TEAM_SEEDS: TeamSeed[] = [
+  { abbr: "NYY", city: "New York", name: "Yankees", stadium: "Yankee Stadium", hitFactor: 0.99, runFactor: 1.05, hrFactor: 1.18, roof: "open" },
+  { abbr: "BOS", city: "Boston", name: "Red Sox", stadium: "Fenway Park", hitFactor: 1.08, runFactor: 1.06, hrFactor: 0.97, roof: "open" },
+  { abbr: "LAD", city: "Los Angeles", name: "Dodgers", stadium: "Dodger Stadium", hitFactor: 0.97, runFactor: 0.98, hrFactor: 1.1, roof: "open" },
+  { abbr: "SD", city: "San Diego", name: "Padres", stadium: "Petco Park", hitFactor: 0.95, runFactor: 0.93, hrFactor: 0.94, roof: "open" },
+  { abbr: "ATL", city: "Atlanta", name: "Braves", stadium: "Truist Park", hitFactor: 1.01, runFactor: 1.02, hrFactor: 1.06, roof: "open" },
+  { abbr: "NYM", city: "New York", name: "Mets", stadium: "Citi Field", hitFactor: 0.96, runFactor: 0.94, hrFactor: 0.95, roof: "open" },
+  { abbr: "HOU", city: "Houston", name: "Astros", stadium: "Minute Maid Park", hitFactor: 1.0, runFactor: 1.01, hrFactor: 1.08, roof: "retractable" },
+  { abbr: "TEX", city: "Texas", name: "Rangers", stadium: "Globe Life Field", hitFactor: 0.98, runFactor: 0.99, hrFactor: 1.02, roof: "retractable" },
+  { abbr: "CHC", city: "Chicago", name: "Cubs", stadium: "Wrigley Field", hitFactor: 1.02, runFactor: 1.04, hrFactor: 1.05, roof: "open" },
+  { abbr: "STL", city: "St. Louis", name: "Cardinals", stadium: "Busch Stadium", hitFactor: 0.98, runFactor: 0.95, hrFactor: 0.9, roof: "open" },
+  { abbr: "PHI", city: "Philadelphia", name: "Phillies", stadium: "Citizens Bank Park", hitFactor: 1.01, runFactor: 1.04, hrFactor: 1.15, roof: "open" },
+  { abbr: "MIA", city: "Miami", name: "Marlins", stadium: "loanDepot park", hitFactor: 0.97, runFactor: 0.92, hrFactor: 0.88, roof: "retractable" },
 ];
 
-export const oddsToday = [
-  { gameId: "nyy-bos", market: "Moneyline", away: -132, home: +112, total: 8.5 },
-  { gameId: "lad-sd", market: "Moneyline", away: -118, home: +100, total: 7.5 },
-  { gameId: "atl-phi", market: "Moneyline", away: +104, home: -124, total: 8 },
-  { gameId: "hou-tex", market: "Moneyline", away: -108, home: -102, total: 8.5 },
-  { gameId: "sea-tor", market: "Moneyline", away: +115, home: -135, total: 7 }
+const FIRST_NAMES = [
+  "Marcus", "Luis", "Jake", "Carlos", "Tyler", "Rafael", "Aaron", "Jose", "Brandon", "Victor",
+  "Andre", "Miguel", "Cody", "Juan", "Trevor", "Bobby", "Adley", "Yandy", "Gunnar", "Wyatt",
+  "Spencer", "Bryan", "Nolan", "Ketel", "Christian", "Ezequiel", "Dansby", "Austin", "Riley", "Oneil",
 ];
 
-export const rawPickInputs: RawPickInput[] = [
-  {
-    id: "judge-hit",
-    playerId: "aaron-judge",
-    market: "Batter to record a hit",
-    selection: "Aaron Judge 1+ hit",
-    game: "NYY @ BOS",
-    gameId: "nyy-bos",
-    player: "Aaron Judge",
-    team: "NYY",
-    odds: -210,
-    baseProbability: 0.69,
-    recentForm: 0.72,
-    stadiumFit: 0.82,
-    handednessSplit: 0.71,
-    pitchTypeFit: 0.68,
-    weatherBoost: 0.62,
-    lineupBoost: 0.9,
-    oddsValue: 0.28,
-    riskPenalty: 0.16,
-    reason: "Elite Fenway contact profile with strong recent hard-hit quality against sinker-heavy right-handed pitching.",
-    dataPointsUsed: ["Last 15: .333 AVG", "Fenway split: +11% hit factor", "RHP split: .401 OBP", "Pitch type fit: sinker/cutter"],
-    riskNotes: ["Price is expensive"]
-  },
-  {
-    id: "betts-tb",
-    playerId: "mookie-betts",
-    market: "Batter 2+ total bases",
-    selection: "Mookie Betts 2+ total bases",
-    game: "LAD @ SD",
-    gameId: "lad-sd",
-    player: "Mookie Betts",
-    team: "LAD",
-    odds: +125,
-    baseProbability: 0.48,
-    recentForm: 0.78,
-    stadiumFit: 0.45,
-    handednessSplit: 0.76,
-    pitchTypeFit: 0.73,
-    weatherBoost: 0.22,
-    lineupBoost: 0.84,
-    oddsValue: 0.8,
-    riskPenalty: 0.22,
-    reason: "Positive pitch-type matchup and elite leadoff plate appearance volume offset Petco's lower carry.",
-    dataPointsUsed: ["Last 10: 7 extra-base hits", "RHP split: .558 SLG", "Pitch type fit: four-seam/sweeper"],
-    riskNotes: ["Pitcher strikeout ceiling is real"]
-  },
-  {
-    id: "soto-hit",
-    playerId: "juan-soto",
-    market: "Batter to record a hit",
-    selection: "Juan Soto 1+ hit",
-    game: "NYY @ BOS",
-    gameId: "nyy-bos",
-    player: "Juan Soto",
-    team: "NYY",
-    odds: -195,
-    baseProbability: 0.68,
-    recentForm: 0.74,
-    stadiumFit: 0.8,
-    handednessSplit: 0.75,
-    pitchTypeFit: 0.7,
-    weatherBoost: 0.62,
-    lineupBoost: 0.9,
-    oddsValue: 0.35,
-    riskPenalty: 0.12,
-    reason: "High OBP floor, excellent left-field wall fit, and strong discipline against Bello's changeup mix.",
-    dataPointsUsed: ["Last 5: 8-for-19", "Fenway history: .356 AVG", "BvP: 4-for-10", "Lineup confirmed"],
-    riskNotes: []
-  },
-  {
-    id: "cole-ks",
-    market: "Pitcher strikeouts over/under",
-    selection: "Gerrit Cole over 6.5 strikeouts",
-    game: "NYY @ BOS",
-    gameId: "nyy-bos",
-    player: "Gerrit Cole",
-    team: "NYY",
-    odds: +102,
-    baseProbability: 0.52,
-    recentForm: 0.66,
-    stadiumFit: 0.42,
-    handednessSplit: 0.68,
-    pitchTypeFit: 0.74,
-    weatherBoost: 0.2,
-    lineupBoost: 0.5,
-    oddsValue: 0.82,
-    riskPenalty: 0.28,
-    reason: "Boston's projected bottom half carries above-average whiff risk versus high fastballs and sliders.",
-    dataPointsUsed: ["Last 5 starts: 30.1% K rate", "Opponent K trend: 24.8%", "Pitch type fit: elevated four-seam"],
-    riskNotes: ["Fenway can shorten starts if traffic rises"]
-  },
-  {
-    id: "lad-ml",
-    market: "Moneyline",
-    selection: "Dodgers moneyline",
-    game: "LAD @ SD",
-    gameId: "lad-sd",
-    team: "LAD",
-    odds: -118,
-    baseProbability: 0.58,
-    recentForm: 0.65,
-    stadiumFit: 0.5,
-    handednessSplit: 0.62,
-    pitchTypeFit: 0.61,
-    weatherBoost: 0.2,
-    lineupBoost: 0.86,
-    oddsValue: 0.48,
-    riskPenalty: 0.18,
-    reason: "Lineup depth and bullpen availability create a small but clear model gap at current price.",
-    dataPointsUsed: ["Projected lineup wRC+: 121", "Bullpen rest edge", "Implied probability below model"],
-    riskNotes: ["Close divisional pricing"]
-  },
-  {
-    id: "acuna-hit",
-    playerId: "ronald-acuna",
-    market: "Batter to record a hit",
-    selection: "Ronald Acuna Jr. 1+ hit",
-    game: "ATL @ PHI",
-    gameId: "atl-phi",
-    player: "Ronald Acuna Jr.",
-    team: "ATL",
-    odds: -175,
-    baseProbability: 0.64,
-    recentForm: 0.68,
-    stadiumFit: 0.74,
-    handednessSplit: 0.64,
-    pitchTypeFit: 0.58,
-    weatherBoost: 0.7,
-    lineupBoost: 0.55,
-    oddsValue: 0.44,
-    riskPenalty: 0.22,
-    reason: "Positive park and weather profile with enough contact stability to survive a difficult Wheeler matchup.",
-    dataPointsUsed: ["Last 10: .310 AVG", "Citizens Bank: +8% RH hit factor", "Weather: out to RF"],
-    riskNotes: ["Lineup not confirmed", "Ace opposing pitcher"]
-  },
-  {
-    id: "strider-ks-under",
-    market: "Pitcher strikeouts over/under",
-    selection: "Spencer Strider under 8.5 strikeouts",
-    game: "ATL @ PHI",
-    gameId: "atl-phi",
-    player: "Spencer Strider",
-    team: "ATL",
-    odds: -105,
-    baseProbability: 0.55,
-    recentForm: 0.46,
-    stadiumFit: 0.52,
-    handednessSplit: 0.5,
-    pitchTypeFit: 0.56,
-    weatherBoost: 0.38,
-    lineupBoost: 0.48,
-    oddsValue: 0.58,
-    riskPenalty: 0.18,
-    reason: "Number is high against a patient Phillies lineup with multiple low-chase left-handed bats.",
-    dataPointsUsed: ["Opponent chase rate: bottom-third", "Line: 8.5 creates room", "Recent pitch counts stable"],
-    riskNotes: ["Pitcher's raw K ceiling is elite"]
-  },
-  {
-    id: "altuve-hit",
-    playerId: "jose-altuve",
-    market: "Batter to record a hit",
-    selection: "Jose Altuve 1+ hit",
-    game: "HOU @ TEX",
-    gameId: "hou-tex",
-    player: "Jose Altuve",
-    team: "HOU",
-    odds: -185,
-    baseProbability: 0.66,
-    recentForm: 0.7,
-    stadiumFit: 0.6,
-    handednessSplit: 0.72,
-    pitchTypeFit: 0.64,
-    weatherBoost: 0.3,
-    lineupBoost: 0.88,
-    oddsValue: 0.4,
-    riskPenalty: 0.12,
-    reason: "Stable contact rate and strong history versus velocity give him one of the slate's safest hit floors.",
-    dataPointsUsed: ["Last 15: 18 hits", "Contact rate: 83%", "BvP: 6-for-18"],
-    riskNotes: []
-  },
-  {
-    id: "hou-tex-f5-under",
-    market: "First 5 innings over/under",
-    selection: "Astros/Rangers F5 under 4.5",
-    game: "HOU @ TEX",
-    gameId: "hou-tex",
-    odds: -112,
-    baseProbability: 0.57,
-    recentForm: 0.58,
-    stadiumFit: 0.5,
-    handednessSplit: 0.56,
-    pitchTypeFit: 0.62,
-    weatherBoost: 0.38,
-    lineupBoost: 0.5,
-    oddsValue: 0.52,
-    riskPenalty: 0.17,
-    reason: "Both starters project above-average ground-ball or weak-contact suppression through two turns.",
-    dataPointsUsed: ["Valdez GB rate: 55%", "Eovaldi home split: 3.21 ERA", "Roof neutralizes weather"],
-    riskNotes: ["Two dangerous top-five offenses"]
-  },
-  {
-    id: "vlad-hit",
-    playerId: "vladimir-guerrero-jr",
-    market: "Batter to record a hit",
-    selection: "Vladimir Guerrero Jr. 1+ hit",
-    game: "SEA @ TOR",
-    gameId: "sea-tor",
-    player: "Vladimir Guerrero Jr.",
-    team: "TOR",
-    odds: -165,
-    baseProbability: 0.63,
-    recentForm: 0.69,
-    stadiumFit: 0.66,
-    handednessSplit: 0.7,
-    pitchTypeFit: 0.61,
-    weatherBoost: 0.4,
-    lineupBoost: 0.58,
-    oddsValue: 0.47,
-    riskPenalty: 0.16,
-    reason: "Low strikeout profile and strong Rogers Centre history grade well against Gilbert's zone-heavy approach.",
-    dataPointsUsed: ["Last 10: .342 AVG", "Home split: .392 OBP", "Pitch type fit: four-seam"],
-    riskNotes: ["Lineup not confirmed"]
-  },
-  {
-    id: "gausman-ks",
-    market: "Pitcher strikeouts over/under",
-    selection: "Kevin Gausman over 5.5 strikeouts",
-    game: "SEA @ TOR",
-    gameId: "sea-tor",
-    player: "Kevin Gausman",
-    team: "TOR",
-    odds: -120,
-    baseProbability: 0.59,
-    recentForm: 0.62,
-    stadiumFit: 0.55,
-    handednessSplit: 0.64,
-    pitchTypeFit: 0.72,
-    weatherBoost: 0.35,
-    lineupBoost: 0.52,
-    oddsValue: 0.5,
-    riskPenalty: 0.15,
-    reason: "Splitter profile aligns well against Seattle's swing path and current projected lineup K rate.",
-    dataPointsUsed: ["Opponent K rate: 25.1%", "Pitch type fit: splitter", "Last 5: 29 Ks"],
-    riskNotes: ["Efficiency can dip with walks"]
-  },
-  {
-    id: "nyy-ml",
-    market: "Moneyline",
-    selection: "Yankees moneyline",
-    game: "NYY @ BOS",
-    gameId: "nyy-bos",
-    team: "NYY",
-    odds: -132,
-    baseProbability: 0.59,
-    recentForm: 0.6,
-    stadiumFit: 0.52,
-    handednessSplit: 0.64,
-    pitchTypeFit: 0.6,
-    weatherBoost: 0.44,
-    lineupBoost: 0.9,
-    oddsValue: 0.38,
-    riskPenalty: 0.16,
-    reason: "Starting pitching and top-order advantage clear enough to support the road favorite price.",
-    dataPointsUsed: ["Starter projection edge", "Confirmed lineup", "Bullpen leverage arms rested"],
-    riskNotes: ["Rivalry volatility"]
-  },
-  {
-    id: "full-game-over-atl",
-    market: "Full game total over/under",
-    selection: "Braves/Phillies over 8",
-    game: "ATL @ PHI",
-    gameId: "atl-phi",
-    odds: +100,
-    baseProbability: 0.53,
-    recentForm: 0.62,
-    stadiumFit: 0.76,
-    handednessSplit: 0.58,
-    pitchTypeFit: 0.6,
-    weatherBoost: 0.78,
-    lineupBoost: 0.5,
-    oddsValue: 0.62,
-    riskPenalty: 0.26,
-    reason: "Weather and park add run support, but elite starters keep this as an aggressive-only edge.",
-    dataPointsUsed: ["Wind out to RF", "Park HR factor: 112", "Both lineups top-8 ISO"],
-    riskNotes: ["Two ace starters", "Lineups not confirmed"]
-  },
-  {
-    id: "freeman-hit",
-    playerId: "freddie-freeman",
-    market: "Batter to record a hit",
-    selection: "Freddie Freeman 1+ hit",
-    game: "LAD @ SD",
-    gameId: "lad-sd",
-    player: "Freddie Freeman",
-    team: "LAD",
-    odds: -190,
-    baseProbability: 0.67,
-    recentForm: 0.71,
-    stadiumFit: 0.5,
-    handednessSplit: 0.78,
-    pitchTypeFit: 0.69,
-    weatherBoost: 0.22,
-    lineupBoost: 0.84,
-    oddsValue: 0.36,
-    riskPenalty: 0.13,
-    reason: "High-contact lefty bat with favorable split and low chase risk in a confirmed premium lineup slot.",
-    dataPointsUsed: ["Last 15: .323 AVG", "RHP split: .396 OBP", "Contact rate: 84%"],
-    riskNotes: ["Run environment is muted"]
-  },
-  {
-    id: "seager-tb",
-    playerId: "corey-seager",
-    market: "Batter 2+ total bases",
-    selection: "Corey Seager 2+ total bases",
-    game: "HOU @ TEX",
-    gameId: "hou-tex",
-    player: "Corey Seager",
-    team: "TEX",
-    odds: +145,
-    baseProbability: 0.44,
-    recentForm: 0.73,
-    stadiumFit: 0.62,
-    handednessSplit: 0.68,
-    pitchTypeFit: 0.66,
-    weatherBoost: 0.32,
-    lineupBoost: 0.84,
-    oddsValue: 0.86,
-    riskPenalty: 0.22,
-    reason: "Positive plus-money edge from current barrel form and matchup against sinkers in the heart of the zone.",
-    dataPointsUsed: ["Last 10: .610 SLG", "Sinker run value: +5", "Home split: .544 SLG"],
-    riskNotes: ["Ground-ball pitcher can cap lift"]
-  }
+const LAST_NAMES = [
+  "Ramirez", "Thompson", "Castillo", "Rodriguez", "Bennett", "Devers", "Hayes", "Martinez", "Cole", "Suarez",
+  "Walker", "Alvarez", "Greene", "Soto", "Bregman", "Turner", "Chapman", "Reyes", "Henderson", "Carroll",
+  "Strider", "Olson", "Arenado", "Marte", "Yelich", "Tovar", "Swanson", "Wells", "Adames", "Cruz",
 ];
 
-export const topTwoHitCandidates = [
-  {
-    player: "Juan Soto",
-    team: "NYY",
-    opponent: "BOS",
-    opposingPitcher: "Brayan Bello",
-    estimatedProbability: 0.286,
-    edge: 0.052,
-    confidence: "Elite",
-    last5: "8-for-19",
-    last10: "15-for-38",
-    last15: "22-for-57",
-    stadiumHistory: ".356 AVG at Fenway",
-    avg: 0.318,
-    obp: 0.431,
-    contactRate: 0.81,
-    kRate: 0.15,
-    reason: "Plate discipline, Fenway spray profile, and lineup context make him the best 2-hit candidate."
-  },
-  {
-    player: "Jose Altuve",
-    team: "HOU",
-    opponent: "TEX",
-    opposingPitcher: "Nathan Eovaldi",
-    estimatedProbability: 0.263,
-    edge: 0.041,
-    confidence: "Strong",
-    last5: "7-for-21",
-    last10: "14-for-42",
-    last15: "18-for-61",
-    stadiumHistory: ".304 AVG at Globe Life",
-    avg: 0.301,
-    obp: 0.362,
-    contactRate: 0.83,
-    kRate: 0.14,
-    reason: "Consistent contact quality and strong velocity matchup keep his multi-hit path live."
-  },
-  {
-    player: "Freddie Freeman",
-    team: "LAD",
-    opponent: "SD",
-    opposingPitcher: "Dylan Cease",
-    estimatedProbability: 0.249,
-    edge: 0.034,
-    confidence: "Strong",
-    last5: "6-for-18",
-    last10: "12-for-37",
-    last15: "20-for-62",
-    stadiumHistory: ".292 AVG at Petco",
-    avg: 0.323,
-    obp: 0.397,
-    contactRate: 0.84,
-    kRate: 0.12,
-    reason: "Contact and opposite-field approach reduce risk against high-strikeout pitching."
-  },
-  {
-    player: "Vladimir Guerrero Jr.",
-    team: "TOR",
-    opponent: "SEA",
-    opposingPitcher: "Logan Gilbert",
-    estimatedProbability: 0.236,
-    edge: 0.029,
-    confidence: "Playable",
-    last5: "5-for-17",
-    last10: "13-for-38",
-    last15: "19-for-59",
-    stadiumHistory: ".331 AVG at Rogers Centre",
-    avg: 0.304,
-    obp: 0.376,
-    contactRate: 0.79,
-    kRate: 0.16,
-    reason: "Home environment and low K rate support the profile, but lineup status caps confidence."
+const PITCHER_FIRST = ["Logan", "Zac", "Hunter", "Framber", "Pablo", "Tarik", "Dylan", "Garrett", "Kevin", "Joe", "Max", "Sonny"];
+const PITCHER_LAST = ["Webb", "Gallen", "Brown", "Valdez", "Lopez", "Skubal", "Cease", "Crochet", "Gausman", "Ryan", "Fried", "Gray"];
+
+const POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
+
+function makeWindow(rng: Rng, baseAvg: number, games: number): BatterWindow {
+  const atBats = Math.round(games * between(rng, 3.4, 4.3));
+  const avg = Math.max(0.1, Math.min(0.48, baseAvg + between(rng, -0.07, 0.09)));
+  const hits = Math.round(atBats * avg);
+  const totalBases = Math.round(hits * between(rng, 1.3, 1.85));
+  return { games, hits, atBats, avg: r3(hits / atBats), totalBases };
+}
+
+function makeBatter(rng: Rng, teamAbbr: string, lineupSpot: number, usedNames: Set<string>): Batter {
+  let name = "";
+  do {
+    name = `${pick(rng, FIRST_NAMES)} ${pick(rng, LAST_NAMES)}`;
+  } while (usedNames.has(name));
+  usedNames.add(name);
+
+  // Top of the lineup skews toward better hitters.
+  const quality = lineupSpot <= 4 ? between(rng, 0.27, 0.33) : between(rng, 0.235, 0.285);
+  const avg = r3(quality);
+  const iso = r3(between(rng, 0.12, lineupSpot <= 5 ? 0.28 : 0.2));
+  const vsAb = Math.floor(between(rng, 0, 24));
+  const vsHits = Math.round(vsAb * Math.max(0, Math.min(0.6, avg + between(rng, -0.12, 0.15))));
+
+  return {
+    id: `${teamAbbr.toLowerCase()}-b${lineupSpot}`,
+    name,
+    teamAbbr,
+    bats: pick(rng, ["L", "R", "R", "R", "S"] as const),
+    position: POSITIONS[(lineupSpot - 1) % POSITIONS.length],
+    lineupSpot,
+    avg,
+    obp: r3(avg + between(rng, 0.05, 0.1)),
+    slg: r3(avg + iso),
+    iso,
+    xba: r3(avg + between(rng, -0.02, 0.025)),
+    xslg: r3(avg + iso + between(rng, -0.03, 0.04)),
+    contactRate: r3(between(rng, 0.68, 0.88)),
+    kRate: r3(between(rng, 0.13, 0.31)),
+    hardHitPct: r3(between(rng, 0.3, 0.52)),
+    barrelPct: r3(between(rng, 0.04, 0.16)),
+    last5: makeWindow(rng, avg, 5),
+    last10: makeWindow(rng, avg, 10),
+    last15: makeWindow(rng, avg, 15),
+    vsPitcher: {
+      atBats: vsAb,
+      hits: vsHits,
+      avg: vsAb > 0 ? r3(vsHits / vsAb) : 0,
+      homeRuns: vsAb >= 10 ? Math.floor(between(rng, 0, 2.4)) : 0,
+    },
+    stadiumAvg: r3(Math.max(0.15, avg + between(rng, -0.06, 0.08))),
+    stadiumGames: Math.floor(between(rng, 4, 40)),
+  };
+}
+
+function makePitcher(rng: Rng, teamAbbr: string, index: number): Pitcher {
+  const first = PITCHER_FIRST[index % PITCHER_FIRST.length];
+  const last = PITCHER_LAST[(index * 7 + 3) % PITCHER_LAST.length];
+  const kRate = r3(between(rng, 0.18, 0.33));
+  const era = r3(between(rng, 2.6, 4.9));
+  const expectedKs = kRate * between(rng, 22, 26);
+  return {
+    id: `${teamAbbr.toLowerCase()}-sp`,
+    name: `${first} ${last}`,
+    teamAbbr,
+    throws: pick(rng, ["L", "R", "R"] as const),
+    era,
+    whip: r3(between(rng, 0.95, 1.45)),
+    kRate,
+    kPer9: r3(kRate * 38),
+    avgAllowed: r3(between(rng, 0.21, 0.275)),
+    slgAllowed: r3(between(rng, 0.34, 0.46)),
+    whiffRate: r3(between(rng, 0.2, 0.34)),
+    avgPitchCount: Math.round(between(rng, 84, 102)),
+    projectedInnings: r3(between(rng, 5, 6.6)),
+    last3KCounts: [0, 0, 0].map(() => Math.max(1, Math.round(expectedKs + between(rng, -2.5, 2.5)))),
+    kLine: Math.round(expectedKs - 0.3) + 0.5,
+  };
+}
+
+function makeWeather(rng: Rng, stadium: Stadium): Weather {
+  if (stadium.roof !== "open" && rng() < 0.75) {
+    return { tempF: 72, windMph: 0, windDirection: "calm", condition: "Dome", impact: "neutral" };
   }
+  const tempF = Math.round(between(rng, 58, 96));
+  const windMph = Math.round(between(rng, 2, 18));
+  const windDirection = pick(rng, ["out", "in", "cross", "calm"] as const);
+  const condition = tempF >= 90 ? "Hot" : pick(rng, ["Clear", "Clear", "Cloudy", "Light Rain"] as const);
+  let impact: Weather["impact"] = "neutral";
+  if ((windDirection === "out" && windMph >= 10) || tempF >= 90) impact = "boost";
+  if ((windDirection === "in" && windMph >= 10) || condition === "Light Rain" || tempF <= 60) impact = "suppress";
+  return { tempF, windMph, windDirection, condition, impact };
+}
+
+function makeTeam(rng: Rng, seed: TeamSeed): Team {
+  return {
+    id: seed.abbr.toLowerCase(),
+    abbr: seed.abbr,
+    name: `${seed.city} ${seed.name}`,
+    city: seed.city,
+    offenseLast7: r3(between(rng, 3.2, 6.2)),
+    offenseLast14: r3(between(rng, 3.5, 5.8)),
+    bullpenEra: r3(between(rng, 3.0, 4.8)),
+    teamKRate: r3(between(rng, 0.19, 0.27)),
+    restDays: rng() < 0.25 ? 1 : 0,
+  };
+}
+
+function mlPairFromProbability(rng: Rng, pHome: number): { homeML: number; awayML: number } {
+  const vig = 0.022;
+  const ph = Math.min(0.78, Math.max(0.22, pHome + vig));
+  const pa = Math.min(0.78, Math.max(0.22, 1 - pHome + vig));
+  const toMl = (p: number) => (p >= 0.5 ? -Math.round((p / (1 - p)) * 100) : Math.round(((1 - p) / p) * 100));
+  return { homeML: toMl(ph), awayML: toMl(pa) };
+}
+
+export interface MockDay {
+  date: string;
+  games: Game[];
+  stadiums: Stadium[];
+  trackedBets: TrackedBet[];
+  modelPerformance: ModelPerformance;
+}
+
+export function buildMockDay(date: string): MockDay {
+  const rng = createRng(seedFromString(`mlb-parleys:${date}`));
+
+  const stadiums: Stadium[] = TEAM_SEEDS.map((s) => ({
+    id: s.abbr.toLowerCase(),
+    name: s.stadium,
+    teamAbbr: s.abbr,
+    hitFactor: s.hitFactor,
+    runFactor: s.runFactor,
+    hrFactor: s.hrFactor,
+    roof: s.roof,
+  }));
+
+  // Shuffle team seeds into 6 matchups.
+  const order = [...TEAM_SEEDS].sort(() => rng() - 0.5);
+  const usedNames = new Set<string>();
+  const times = ["1:05 PM", "4:10 PM", "6:40 PM", "7:05 PM", "7:45 PM", "9:40 PM"];
+
+  const games: Game[] = [];
+  for (let g = 0; g < 6; g++) {
+    const homeSeed = order[g * 2];
+    const awaySeed = order[g * 2 + 1];
+    const home = makeTeam(rng, homeSeed);
+    const away = makeTeam(rng, awaySeed);
+    const stadium = stadiums.find((s) => s.teamAbbr === homeSeed.abbr)!;
+    const weather = makeWeather(rng, stadium);
+    const homePitcher = makePitcher(rng, homeSeed.abbr, g * 2);
+    const awayPitcher = makePitcher(rng, awaySeed.abbr, g * 2 + 1);
+    const homeLineup = Array.from({ length: 9 }, (_, i) => makeBatter(rng, homeSeed.abbr, i + 1, usedNames));
+    const awayLineup = Array.from({ length: 9 }, (_, i) => makeBatter(rng, awaySeed.abbr, i + 1, usedNames));
+
+    const pHome = 0.5 + (awayPitcher.era - homePitcher.era) * 0.04 + (home.offenseLast14 - away.offenseLast14) * 0.015 + 0.035 + between(rng, -0.03, 0.03);
+    const { homeML, awayML } = mlPairFromProbability(rng, pHome);
+    const baseTotal = (home.offenseLast14 + away.offenseLast14) * 0.5 * stadium.runFactor + (homePitcher.era + awayPitcher.era) * 0.45;
+    const total = Math.round(baseTotal) + 0.5;
+
+    games.push({
+      id: `g${g + 1}-${date}`,
+      date,
+      startTimeET: times[g],
+      home,
+      away,
+      stadium,
+      weather,
+      homePitcher,
+      awayPitcher,
+      homeLineup,
+      awayLineup,
+      lineupsConfirmed: rng() < 0.7,
+      odds: {
+        homeML,
+        awayML,
+        total,
+        overOdds: -110,
+        underOdds: -110,
+        f5Total: Math.round(total * 0.55) - 0.5,
+        f5OverOdds: -112,
+        f5UnderOdds: -108,
+      },
+    });
+  }
+
+  const trackedBets = buildTrackedBets(rng, date);
+  const modelPerformance = buildModelPerformance(rng, trackedBets, date);
+
+  return { date, games, stadiums, trackedBets, modelPerformance };
+}
+
+const TRACK_MARKETS = [
+  "Batter to record a hit",
+  "Batter 2+ total bases",
+  "Moneyline",
+  "Pitcher strikeouts over/under",
+  "Full game total over/under",
+  "First 5 innings over/under",
 ] as const;
 
-export const stadiumSplits = [
-  {
-    id: "fenway",
-    name: "Fenway Park",
-    hitFactor: 1.11,
-    homeRunFactor: 1.04,
-    handednessNote: "Right-handed pull power and left-handed wall-ball singles both receive small boosts.",
-    weatherSensitivity: "High"
-  },
-  {
-    id: "petco",
-    name: "Petco Park",
-    hitFactor: 0.96,
-    homeRunFactor: 0.91,
-    handednessNote: "Suppresses carry, especially to center and right-center.",
-    weatherSensitivity: "Medium"
-  },
-  {
-    id: "citizens-bank",
-    name: "Citizens Bank Park",
-    hitFactor: 1.06,
-    homeRunFactor: 1.12,
-    handednessNote: "Left-handed pull power receives the largest lift.",
-    weatherSensitivity: "High"
+function buildTrackedBets(rng: Rng, date: string): TrackedBet[] {
+  const bets: TrackedBet[] = [];
+  const base = new Date(`${date}T12:00:00Z`);
+  const names = ["M. Ramirez hit", "L. Castillo 2+ TB", "Yankees ML", "F. Valdez Over 6.5 K", "Over 8.5 runs", "First 5 Under 4.5", "C. Bennett hit", "Dodgers ML", "T. Skubal Over 7.5 K", "Under 9.5 runs"];
+  for (let i = 0; i < 28; i++) {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() - Math.floor(i / 3) - (i % 3 === 0 ? 0 : 1));
+    const odds = rng() < 0.55 ? -Math.round(between(rng, 110, 260)) : Math.round(between(rng, 100, 190));
+    const closingMove = Math.round(between(rng, -18, 22));
+    const closingOdds = odds + closingMove;
+    const isToday = i < 3;
+    const roll = rng();
+    const result: TrackedBet["result"] = isToday ? "pending" : roll < 0.62 ? "won" : roll < 0.95 ? "lost" : "void";
+    bets.push({
+      id: `bet-${i + 1}`,
+      date: d.toISOString().slice(0, 10),
+      market: TRACK_MARKETS[i % TRACK_MARKETS.length],
+      selection: names[i % names.length],
+      game: "—",
+      odds,
+      closingOdds,
+      clv: Math.round(closingMove * -0.4 * 10) / 10,
+      result,
+    });
   }
-];
+  return bets;
+}
 
-export const modelPerformance = {
-  winRate: 0.587,
-  roi: 0.074,
-  clv: 0.031,
-  byMarket: [
-    { market: "Batter to record a hit", accuracy: 0.641, roi: 0.052 },
-    { market: "Pitcher strikeouts over/under", accuracy: 0.552, roi: 0.068 },
-    { market: "Moneyline", accuracy: 0.573, roi: 0.028 },
-    { market: "Batter 2+ total bases", accuracy: 0.421, roi: 0.091 }
-  ]
-};
+function buildModelPerformance(rng: Rng, bets: TrackedBet[], date: string): ModelPerformance {
+  const settled = bets.filter((b) => b.result === "won" || b.result === "lost");
+  const wins = settled.filter((b) => b.result === "won").length;
+  const losses = settled.length - wins;
+  const pending = bets.filter((b) => b.result === "pending").length;
+  const voids = bets.filter((b) => b.result === "void").length;
 
-export const settings = {
-  mockMode: true,
-  maxLegs: 10,
-  minEdge: 0.02,
-  sportsbooks: ["DraftKings", "FanDuel", "BetMGM"],
-  lastModelUpdate: "2:14 PM ET"
-};
+  const byMarket = TRACK_MARKETS.map((market) => {
+    const mBets = bets.filter((b) => b.market === market);
+    const mWins = mBets.filter((b) => b.result === "won").length;
+    const mLosses = mBets.filter((b) => b.result === "lost").length;
+    const total = mWins + mLosses;
+    return {
+      market,
+      wins: mWins,
+      losses: mLosses,
+      pending: mBets.filter((b) => b.result === "pending").length,
+      winRate: total > 0 ? Math.round((mWins / total) * 1000) / 10 : 0,
+      roi: Math.round(between(rng, -6, 14) * 10) / 10,
+      avgClv: Math.round(between(rng, -1.5, 3.5) * 10) / 10,
+    };
+  });
+
+  const last30: ModelPerformance["last30"] = [];
+  const base = new Date(`${date}T12:00:00Z`);
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() - i);
+    last30.push({ date: d.toISOString().slice(0, 10), winRate: Math.round(between(rng, 42, 74) * 10) / 10 });
+  }
+
+  return {
+    record: { wins, losses, pending, voids },
+    winRate: settled.length > 0 ? Math.round((wins / settled.length) * 1000) / 10 : 0,
+    roi: Math.round(between(rng, 4, 11) * 10) / 10,
+    avgClv: Math.round(between(rng, 0.5, 2.8) * 10) / 10,
+    last30,
+    byMarket: byMarket as ModelPerformance["byMarket"],
+    lastModelUpdate: `${date}T11:30:00Z`,
+  };
+}
