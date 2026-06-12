@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Check, ChevronDown, ChevronUp, Copy, Flame, Scale, Shield } from "lucide-react";
-import type { Parlay } from "../types/mlb";
+import { BadgeCheck, Check, ChevronDown, ChevronUp, Copy, Flame, Scale, Shield } from "lucide-react";
+import type { LegResult, Parlay, ParlayStatus } from "../types/mlb";
 import { badgeClasses, edgeColor, formatEdge, formatOdds, formatPct, parlayToClipboard } from "../lib/format";
 
 interface Props {
@@ -13,6 +13,38 @@ const TYPE_META = {
   balanced: { icon: Scale, color: "text-sky-400", ring: "ring-sky-500/30", label: "Balanced" },
   aggressive: { icon: Flame, color: "text-rose-400", ring: "ring-rose-500/30", label: "Aggressive" },
 };
+
+const STATUS_BADGES: Record<ParlayStatus, { label: string; cls: string }> = {
+  PENDING: { label: "Pending Results", cls: "bg-amber-500/15 text-amber-300 border-amber-500/40" },
+  WON: { label: "Won", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" },
+  LOST: { label: "Lost", cls: "bg-rose-500/15 text-rose-300 border-rose-500/40" },
+  VOID: { label: "Void", cls: "bg-slate-500/15 text-slate-400 border-slate-500/40" },
+};
+
+const LEG_RESULT_ICONS: Record<LegResult, string> = {
+  won: "✅",
+  lost: "❌",
+  void: "➖",
+  pending: "⏳",
+};
+
+function LineupBadge({ status }: { status?: string }) {
+  if (status === "CONFIRMED") {
+    return (
+      <span className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-300">
+        Confirmed Lineup
+      </span>
+    );
+  }
+  if (status === "PROJECTED_REGULAR") {
+    return (
+      <span className="rounded-md border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-sky-300">
+        Projected Regular
+      </span>
+    );
+  }
+  return null;
+}
 
 export default function ParlayCard({ parlay, defaultExpanded = false }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -45,9 +77,25 @@ export default function ParlayCard({ parlay, defaultExpanded = false }: Props) {
             <Icon size={19} />
           </div>
           <div>
-            <div className="text-sm font-bold text-white">{parlay.name}</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-bold text-white">{parlay.name}</span>
+              {parlay.status && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-violet-300">
+                  <BadgeCheck size={10} />
+                  Official Daily Pick
+                </span>
+              )}
+              {parlay.status && (
+                <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase ${STATUS_BADGES[parlay.status].cls}`}>
+                  {STATUS_BADGES[parlay.status].label}
+                </span>
+              )}
+            </div>
             <div className="text-xs text-slate-500">
               {parlay.legs.length} legs · model {formatPct(parlay.modelProbability, 2)}
+              {parlay.resultReason && parlay.status !== "PENDING" && (
+                <span className="text-slate-400"> · {parlay.resultReason}</span>
+              )}
             </div>
           </div>
         </div>
@@ -69,10 +117,19 @@ export default function ParlayCard({ parlay, defaultExpanded = false }: Props) {
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-slate-200">
                   <span className="mr-1.5 text-xs text-slate-600">{i + 1}.</span>
+                  {leg.result && leg.result !== "pending" && (
+                    <span className="mr-1">{LEG_RESULT_ICONS[leg.result]}</span>
+                  )}
                   {leg.selection}
                 </div>
-                <div className="truncate text-[11px] text-slate-500">
-                  {leg.market} · {leg.game}
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                  <span className="truncate">{leg.market} · {leg.game}</span>
+                  <LineupBadge status={leg.lineupStatus} />
+                  {leg.oddsSource === "mock" && (
+                    <span className="rounded-md border border-slate-500/40 bg-slate-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-400">
+                      Mock Odds
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -105,6 +162,9 @@ export default function ParlayCard({ parlay, defaultExpanded = false }: Props) {
                   ))}
                 </ul>
                 <p className="text-amber-400/80">⚠ {leg.riskNote}</p>
+                {leg.eligibilityReason && (
+                  <p className="mt-1.5 text-sky-300/80">Eligibility: {leg.eligibilityReason}</p>
+                )}
               </div>
             )}
           </div>

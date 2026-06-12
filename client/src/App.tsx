@@ -10,11 +10,11 @@ import StadiumSplits from "./pages/StadiumSplits";
 import ResultsTracker from "./pages/ResultsTracker";
 import Settings from "./pages/Settings";
 import { mlbApi } from "./api/mlbApi";
-import type { Game, ModelPerformanceData, Parlay, PickLeg, TwoHitCandidate } from "./types/mlb";
+import type { DataStatus, Game, Parlay, ParlayPerformanceData, PickLeg, TwoHitCandidate } from "./types/mlb";
 
 const PAGE_TITLES: Record<PageId, string> = {
   dashboard: "Dashboard",
-  parlays: "Generated Parlays",
+  parlays: "Official Daily Parlays",
   topPicks: "Top Picks",
   twoHit: "Top 2-Hit Candidates",
   matchup: "Matchup Analyzer",
@@ -29,25 +29,26 @@ export default function App() {
   const [parlays, setParlays] = useState<Parlay[]>([]);
   const [picks, setPicks] = useState<PickLeg[]>([]);
   const [candidates, setCandidates] = useState<TwoHitCandidate[]>([]);
-  const [performance, setPerformance] = useState<ModelPerformanceData | null>(null);
-  const [mockMode, setMockMode] = useState(true);
+  const [performance, setPerformance] = useState<ParlayPerformanceData | null>(null);
+  const [dataStatus, setDataStatus] = useState<DataStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [settling, setSettling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setRefreshing(true);
     setError(null);
     try {
-      const [health, gamesRes, parlaysRes, picksRes, candidatesRes, perf] = await Promise.all([
-        mlbApi.health(),
+      const [status, gamesRes, parlaysRes, picksRes, candidatesRes, perf] = await Promise.all([
+        mlbApi.dataStatus(),
         mlbApi.gamesToday(),
         mlbApi.parlaysToday(),
         mlbApi.topPicks(),
         mlbApi.twoHitCandidates(),
-        mlbApi.modelPerformance(),
+        mlbApi.parlayPerformance(),
       ]);
-      setMockMode(health.mockMode);
+      setDataStatus(status);
       setGames(gamesRes.games);
       setParlays(parlaysRes.parlays);
       setPicks(picksRes.picks);
@@ -69,11 +70,26 @@ export default function App() {
     setError(null);
     try {
       const res = await mlbApi.generateParlays();
-      setParlays(res.parlays);
+      // Show the stored official set (carries status + eligibility badges).
+      setParlays(res.official ?? res.parlays);
     } catch (e) {
       setError(String(e));
     } finally {
       setGenerating(false);
+    }
+  }, []);
+
+  const settleToday = useCallback(async () => {
+    setSettling(true);
+    setError(null);
+    try {
+      const res = await mlbApi.settleToday();
+      if (res.parlays.length > 0) setParlays(res.parlays);
+      setPerformance(await mlbApi.parlayPerformance());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSettling(false);
     }
   }, []);
 
@@ -82,7 +98,7 @@ export default function App() {
       <Sidebar page={page} onNavigate={setPage} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header title={PAGE_TITLES[page]} mockMode={mockMode} refreshing={refreshing} onRefresh={loadAll} />
+        <Header title={PAGE_TITLES[page]} dataStatus={dataStatus} refreshing={refreshing} onRefresh={loadAll} />
 
         <main className="flex-1 px-8 py-6">
           {error && (
@@ -98,8 +114,11 @@ export default function App() {
               picks={picks}
               candidates={candidates}
               performance={performance}
+              dataStatus={dataStatus}
               generating={generating}
+              settling={settling}
               onGenerate={generateParlays}
+              onSettle={settleToday}
             />
           )}
           {page === "parlays" && <Parlays parlays={parlays} generating={generating} onGenerate={generateParlays} />}

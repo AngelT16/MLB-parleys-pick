@@ -1,12 +1,12 @@
 import type {
   AppSettings,
+  DataStatus,
   Game,
-  ModelPerformanceData,
   Parlay,
+  ParlayPerformanceData,
   PickLeg,
   PlayerMatchup,
   StadiumSplitsData,
-  TrackedBet,
   TwoHitCandidate,
 } from "../types/mlb";
 
@@ -32,7 +32,7 @@ export const mlbApi = {
   parlaysToday: () => request<{ date: string; parlays: Parlay[] }>("/api/mlb/parlays/today"),
 
   generateParlays: (overrides?: Partial<AppSettings>) =>
-    request<{ date: string; parlays: Parlay[] }>("/api/mlb/parlays/generate", {
+    request<{ date: string; parlays: Parlay[]; official?: Parlay[] }>("/api/mlb/parlays/generate", {
       method: "POST",
       body: JSON.stringify(overrides ?? {}),
     }),
@@ -54,8 +54,26 @@ export const mlbApi = {
       body: JSON.stringify(settings),
     }),
 
-  resultsTracker: () =>
-    request<{ date: string; bets: TrackedBet[]; performance: ModelPerformanceData }>("/api/mlb/results/tracker"),
+  dataStatus: () => request<DataStatus>("/api/mlb/data/status"),
 
-  modelPerformance: () => request<ModelPerformanceData>("/api/mlb/model/performance"),
+  syncOfficial: () =>
+    request<{ synced: boolean; status: DataStatus }>("/api/mlb/data/sync-official", { method: "POST" }),
+
+  settleToday: () =>
+    request<{ date: string; settled: number; parlays: Parlay[] }>("/api/mlb/results/settle-today", {
+      method: "POST",
+    }),
+
+  settleDate: (date: string) =>
+    request<{ date: string; settled: number; parlays: Parlay[] }>(
+      `/api/mlb/results/settle-date?date=${date}`,
+      { method: "POST" }
+    ),
+
+  resultsToday: () => request<{ date: string; parlays: Parlay[] }>("/api/mlb/results/today"),
+
+  resultsHistory: () =>
+    request<{ history: Array<{ date: string; parlays: Parlay[] }> }>("/api/mlb/results/history"),
+
+  parlayPerformance: () => request<ParlayPerformanceData>("/api/mlb/model-performance"),
 };

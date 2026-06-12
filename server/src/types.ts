@@ -10,11 +10,43 @@ export type ConfidenceLabel = "Elite" | "Strong" | "Playable" | "Avoid";
 
 export type RiskMode = "conservative" | "balanced" | "aggressive";
 
+export type LineupStatus = "CONFIRMED" | "PROJECTED_REGULAR" | "PENDING" | "EXCLUDED";
+
+export type OddsSource = "mock" | "live";
+
+export type DataSource = "mlb-official" | "mock";
+
+export type LegResult = "pending" | "won" | "lost" | "void";
+
+export type ParlayStatus = "PENDING" | "WON" | "LOST" | "VOID";
+
+export interface PlayerEligibility {
+  playerId: number;
+  playerName: string;
+  teamId: number;
+  teamAbbr: string;
+  position: string;
+  activeRoster: boolean;
+  injured: boolean;
+  lineupStatus: LineupStatus;
+  battingOrderSpot: number | null;
+  /** Games played in the team's last 10 games */
+  recentGamesPlayed: number;
+  gamesPlayedLast5: number;
+  gamesPlayedLast10: number;
+  seasonPlateAppearances: number;
+  last5Games: string;
+  reason: string;
+  eligibleForPicks: boolean;
+}
+
 export interface Team {
   id: string;
   abbr: string;
   name: string;
   city: string;
+  /** MLB Stats API team id (only set when data comes from the official API) */
+  mlbId?: number;
   /** Runs per game over the last 7 days */
   offenseLast7: number;
   /** Runs per game over the last 14 days */
@@ -51,6 +83,8 @@ export interface Weather {
 
 export interface Pitcher {
   id: string;
+  /** MLB Stats API person id (only set when data comes from the official API) */
+  personId?: number;
   name: string;
   teamAbbr: string;
   throws: "L" | "R";
@@ -82,6 +116,8 @@ export interface BatterWindow {
 
 export interface Batter {
   id: string;
+  /** MLB Stats API person id (only set when data comes from the official API) */
+  personId?: number;
   name: string;
   teamAbbr: string;
   bats: "L" | "R" | "S";
@@ -104,6 +140,11 @@ export interface Batter {
   /** Career AVG at today's stadium */
   stadiumAvg: number;
   stadiumGames: number;
+  /** Eligibility metadata (only set when data comes from the official API) */
+  lineupStatus?: LineupStatus;
+  activeRoster?: boolean;
+  recentGamesPlayed?: number;
+  eligibilityReason?: string;
 }
 
 export interface GameOdds {
@@ -119,6 +160,9 @@ export interface GameOdds {
 
 export interface Game {
   id: string;
+  /** MLB Stats API gamePk (only set when data comes from the official API) */
+  gamePk?: number;
+  dataSource?: DataSource;
   date: string;
   startTimeET: string;
   home: Team;
@@ -150,6 +194,23 @@ export interface PickLeg {
   riskNote: string;
   /** Internal: player/team key used for correlation checks */
   subjectKey: string;
+  /** Where the price came from - odds remain mock until a sportsbook feed is wired in */
+  oddsSource?: OddsSource;
+  // ---- Settlement metadata -------------------------------------------------
+  /** MLB Stats API gamePk used to settle this leg against official results */
+  gamePk?: number;
+  /** MLB person id for player props (batter or pitcher) */
+  playerId?: number;
+  /** Which side of the game a moneyline pick is on */
+  teamSide?: "home" | "away";
+  /** Betting line for over/under markets (K line, totals) */
+  line?: number;
+  overUnder?: "Over" | "Under";
+  // ---- Player eligibility (player props only) ------------------------------
+  lineupStatus?: LineupStatus;
+  activeRoster?: boolean;
+  recentGamesPlayed?: number;
+  eligibilityReason?: string;
 }
 
 export interface Parlay {
@@ -227,4 +288,63 @@ export interface ModelPerformance {
   last30: { date: string; winRate: number }[];
   byMarket: MarketPerformance[];
   lastModelUpdate: string;
+}
+
+// ---- Stored daily parlays & full-parlay performance -------------------------
+
+export interface StoredParlayLeg extends PickLeg {
+  result: LegResult;
+  settledAt: string | null;
+}
+
+/** One of the 3 official daily parlays, persisted so it can be settled later. */
+export interface StoredParlay {
+  id: string;
+  date: string;
+  type: RiskMode;
+  name: string;
+  legs: StoredParlayLeg[];
+  combinedOdds: number;
+  combinedDecimal: number;
+  modelProbability: number;
+  impliedProbability: number;
+  edge: number;
+  generatedAt: string;
+  status: ParlayStatus;
+  settledAt: string | null;
+  /** Short human explanation, e.g. "1 leg lost" or "All 9 legs won" */
+  resultReason: string | null;
+}
+
+export interface ParlayTypeRecord {
+  type: RiskMode;
+  wins: number;
+  losses: number;
+  pending: number;
+  voids: number;
+  winRate: number;
+}
+
+/** Model performance measured on FULL parlays, never leg by leg. */
+export interface ParlayPerformance {
+  record: { wins: number; losses: number; pending: number; voids: number };
+  winRate: number;
+  roi: number;
+  avgClv: number | null;
+  byType: ParlayTypeRecord[];
+  totalParlays: number;
+  lastSettledAt: string | null;
+}
+
+export interface DataStatus {
+  source: DataSource;
+  oddsSource: OddsSource;
+  mockMode: boolean;
+  officialApiOk: boolean;
+  date: string;
+  totalGames: number;
+  lineupsConfirmed: number;
+  projectedRegularsUsed: number;
+  lastSync: string | null;
+  officialError: string | null;
 }

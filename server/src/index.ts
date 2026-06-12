@@ -23,5 +23,7 @@ app.use((_req, res) => {
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`[server] MLB Parleys Pick API listening on http://0.0.0.0:${port}`);
-  console.log(`[server] Mock mode: ${process.env.MOCK_MODE !== "false" ? "ON" : "OFF"}`);
+  console.log(
+    `[server] Data source: ${process.env.MOCK_MODE === "true" ? "MOCK (set MOCK_MODE=false for official data)" : "MLB Official API (mock odds)"}`
+  );
 });

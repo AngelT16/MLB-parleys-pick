@@ -9,6 +9,12 @@ export type Market =
 export type ConfidenceLabel = "Elite" | "Strong" | "Playable" | "Avoid";
 export type RiskMode = "conservative" | "balanced" | "aggressive";
 
+export type LineupStatus = "CONFIRMED" | "PROJECTED_REGULAR" | "PENDING" | "EXCLUDED";
+export type OddsSource = "mock" | "live";
+export type DataSource = "mlb-official" | "mock";
+export type LegResult = "pending" | "won" | "lost" | "void";
+export type ParlayStatus = "PENDING" | "WON" | "LOST" | "VOID";
+
 export interface Team {
   id: string;
   abbr: string;
@@ -133,6 +139,19 @@ export interface PickLeg {
   dataPoints: string[];
   riskNote: string;
   subjectKey: string;
+  oddsSource?: OddsSource;
+  gamePk?: number;
+  playerId?: number;
+  teamSide?: "home" | "away";
+  line?: number;
+  overUnder?: "Over" | "Under";
+  lineupStatus?: LineupStatus;
+  activeRoster?: boolean;
+  recentGamesPlayed?: number;
+  eligibilityReason?: string;
+  /** Present once the leg has been settled (stored official parlays) */
+  result?: LegResult;
+  settledAt?: string | null;
 }
 
 export interface Parlay {
@@ -146,6 +165,44 @@ export interface Parlay {
   impliedProbability: number;
   edge: number;
   generatedAt: string;
+  /** Present on stored official daily parlays */
+  date?: string;
+  status?: ParlayStatus;
+  settledAt?: string | null;
+  resultReason?: string | null;
+}
+
+export interface ParlayTypeRecord {
+  type: RiskMode;
+  wins: number;
+  losses: number;
+  pending: number;
+  voids: number;
+  winRate: number;
+}
+
+/** Model performance measured on FULL parlays - never leg by leg. */
+export interface ParlayPerformanceData {
+  record: { wins: number; losses: number; pending: number; voids: number };
+  winRate: number;
+  roi: number;
+  avgClv: number | null;
+  byType: ParlayTypeRecord[];
+  totalParlays: number;
+  lastSettledAt: string | null;
+}
+
+export interface DataStatus {
+  source: DataSource;
+  oddsSource: OddsSource;
+  mockMode: boolean;
+  officialApiOk: boolean;
+  date: string;
+  totalGames: number;
+  lineupsConfirmed: number;
+  projectedRegularsUsed: number;
+  lastSync: string | null;
+  officialError: string | null;
 }
 
 export interface TwoHitCandidate {

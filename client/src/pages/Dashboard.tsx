@@ -1,5 +1,5 @@
-import { CalendarDays, CloudSun, Cpu, ListChecks, Wand2, Zap } from "lucide-react";
-import type { Game, ModelPerformanceData, Parlay, PickLeg, TwoHitCandidate } from "../types/mlb";
+import { CalendarDays, Database, ListChecks, UserCheck, Wand2, Zap } from "lucide-react";
+import type { DataStatus, Game, Parlay, ParlayPerformanceData, PickLeg, TwoHitCandidate } from "../types/mlb";
 import StatCard from "../components/StatCard";
 import GamesOverview from "../components/GamesOverview";
 import ParlayCard from "../components/ParlayCard";
@@ -13,34 +13,50 @@ interface Props {
   parlays: Parlay[];
   picks: PickLeg[];
   candidates: TwoHitCandidate[];
-  performance: ModelPerformanceData | null;
+  performance: ParlayPerformanceData | null;
+  dataStatus: DataStatus | null;
   generating: boolean;
+  settling: boolean;
   onGenerate: () => void;
+  onSettle: () => void;
 }
 
-export default function Dashboard({ games, parlays, picks, candidates, performance, generating, onGenerate }: Props) {
+export default function Dashboard({
+  games,
+  parlays,
+  picks,
+  candidates,
+  performance,
+  dataStatus,
+  generating,
+  settling,
+  onGenerate,
+  onSettle,
+}: Props) {
   const confirmed = games.filter((g) => g.lineupsConfirmed).length;
   const topEdge = picks.length > 0 ? Math.max(...picks.map((p) => p.edge)) : 0;
-  const weatherBoost = games.filter((g) => g.weather.impact === "boost").length;
-  const weatherSuppress = games.filter((g) => g.weather.impact === "suppress").length;
-  const lastUpdate = performance
-    ? new Date(performance.lastModelUpdate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "—";
+  const officialData = dataStatus?.source === "mlb-official";
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+        <StatCard
+          label="Data Source"
+          value={officialData ? "MLB Official" : "Mock"}
+          sub={officialData ? "statsapi.mlb.com + mock odds" : dataStatus?.officialError ? "official API unreachable" : "demo data"}
+          icon={Database}
+          accent={officialData ? "emerald" : "violet"}
+        />
         <StatCard label="Games Today" value={String(games.length)} sub="MLB slate" icon={CalendarDays} accent="emerald" />
         <StatCard label="Lineups Confirmed" value={`${confirmed}/${games.length}`} sub="rest projected" icon={ListChecks} accent="sky" />
-        <StatCard label="Top Edge Today" value={formatEdge(topEdge)} sub="best single pick" icon={Zap} accent="amber" />
-        <StatCard label="Last Model Update" value={lastUpdate} sub="auto-refresh daily" icon={Cpu} accent="violet" />
         <StatCard
-          label="Weather Impact"
-          value={`${weatherBoost}▲ ${weatherSuppress}▼`}
-          sub="boost / suppress games"
-          icon={CloudSun}
-          accent="rose"
+          label="Projected Regulars Used"
+          value={String(dataStatus?.projectedRegularsUsed ?? 0)}
+          sub="unconfirmed lineups only"
+          icon={UserCheck}
+          accent="violet"
         />
+        <StatCard label="Top Edge Today" value={formatEdge(topEdge)} sub="best single pick" icon={Zap} accent="amber" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_330px]">
@@ -49,7 +65,7 @@ export default function Dashboard({ games, parlays, picks, candidates, performan
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">Generated Parlays</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">Official Daily Parlays</h2>
               <button className="btn-primary" onClick={onGenerate} disabled={generating}>
                 <Wand2 size={15} className={generating ? "animate-pulse" : ""} />
                 {generating ? "Generating…" : "Generate New Parlays"}
@@ -69,9 +85,9 @@ export default function Dashboard({ games, parlays, picks, candidates, performan
         </div>
 
         <div className="space-y-6">
+          <ModelPerformance performance={performance} settling={settling} onSettle={onSettle} />
           <Top2HitCandidates candidates={candidates} />
           <BestPicks picks={picks} />
-          <ModelPerformance performance={performance} />
         </div>
       </div>
     </div>

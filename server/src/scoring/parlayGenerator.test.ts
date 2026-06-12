@@ -107,6 +107,60 @@ describe("generateParlays", () => {
   });
 });
 
+describe("generateParlays player eligibility", () => {
+  function poolWithStatuses(): PickLeg[] {
+    const pool = buildPool();
+    // Tag player legs with eligibility statuses; give EXCLUDED legs absurdly
+    // good numbers so they would dominate if the filter ever failed.
+    return pool.map((leg, i) => {
+      if (!leg.subjectKey.startsWith("player:")) return leg;
+      if (i % 3 === 0) {
+        return { ...leg, lineupStatus: "EXCLUDED" as const, modelProbability: 0.92, edge: 0.4, confidenceScore: 99, confidenceLabel: "Elite" as const };
+      }
+      if (i % 3 === 1) {
+        return { ...leg, lineupStatus: "CONFIRMED" as const };
+      }
+      return { ...leg, lineupStatus: "PROJECTED_REGULAR" as const };
+    });
+  }
+
+  it("never includes EXCLUDED players, no matter how good the leg looks", () => {
+    const parlays = generateParlays(poolWithStatuses(), SETTINGS);
+    for (const parlay of parlays) {
+      for (const leg of parlay.legs) {
+        expect(leg.lineupStatus).not.toBe("EXCLUDED");
+      }
+    }
+  });
+
+  it("never includes PENDING players", () => {
+    const pool = buildPool().map((leg) =>
+      leg.subjectKey.startsWith("player:") ? { ...leg, lineupStatus: "PENDING" as const } : leg
+    );
+    const parlays = generateParlays(pool, SETTINGS);
+    for (const parlay of parlays) {
+      for (const leg of parlay.legs) {
+        expect(leg.lineupStatus).toBeUndefined();
+      }
+    }
+  });
+
+  it("confirmed-only mode drops PROJECTED_REGULAR player legs", () => {
+    const parlays = generateParlays(poolWithStatuses(), { ...SETTINGS, excludeUnconfirmedLineups: true });
+    for (const parlay of parlays) {
+      for (const leg of parlay.legs) {
+        if (leg.lineupStatus) expect(leg.lineupStatus).toBe("CONFIRMED");
+      }
+    }
+  });
+
+  it("still allows non-player markets regardless of eligibility settings", () => {
+    const parlays = generateParlays(poolWithStatuses(), SETTINGS);
+    const allLegs = parlays.flatMap((p) => p.legs);
+    expect(allLegs.length).toBeGreaterThan(0);
+  });
+});
+
 describe("applyCorrelationPenalty", () => {
   const day = buildMockDay("2026-06-11");
   const game = day.games[0];

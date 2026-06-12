@@ -65,6 +65,11 @@ function buildLeg(params: {
   dataPoints: string[];
   riskNote: string;
   subjectKey: string;
+  playerId?: number;
+  teamSide?: "home" | "away";
+  line?: number;
+  overUnder?: "Over" | "Under";
+  batter?: Batter;
 }): PickLeg {
   const implied = americanOddsToImpliedProbability(params.odds);
   const edge = calculateEdge(params.modelProbability, implied);
@@ -85,6 +90,16 @@ function buildLeg(params: {
     dataPoints: params.dataPoints,
     riskNote: params.riskNote,
     subjectKey: params.subjectKey,
+    oddsSource: "mock",
+    gamePk: params.game.gamePk,
+    playerId: params.playerId,
+    teamSide: params.teamSide,
+    line: params.line,
+    overUnder: params.overUnder,
+    lineupStatus: params.batter?.lineupStatus,
+    activeRoster: params.batter?.activeRoster,
+    recentGamesPlayed: params.batter?.recentGamesPlayed,
+    eligibilityReason: params.batter?.eligibilityReason,
   };
 }
 
@@ -153,6 +168,8 @@ export function scoreHitPick(batter: Batter, ctx: ScoreContext): PickLeg {
         : "Low-variance market, but an early exit or pinch-hit situation voids value."
       : "Lineup not confirmed yet - verify before betting.",
     subjectKey: `player:${batter.id}`,
+    playerId: batter.personId,
+    batter,
   });
 }
 
@@ -212,6 +229,8 @@ export function scoreTwoTotalBasesPick(batter: Batter, ctx: ScoreContext): PickL
     ],
     riskNote: "Higher variance than a hit prop - power outcomes swing day to day.",
     subjectKey: `player:${batter.id}`,
+    playerId: batter.personId,
+    batter,
   });
 }
 
@@ -269,6 +288,9 @@ export function scorePitcherStrikeoutPick(pitcher: Pitcher, game: Game, opponent
         ? "Early hook or high pitch count in short innings caps strikeout upside."
         : "A long outing or weak contact lineup could push Ks past the line.",
     subjectKey: `pitcher:${pitcher.id}`,
+    playerId: pitcher.personId,
+    line,
+    overUnder: side,
   });
 }
 
@@ -330,6 +352,7 @@ export function scoreMoneylinePick(game: Game): PickLeg {
     ],
     riskNote: "Bullpen usage and late lineup changes can flip close games.",
     subjectKey: `team:${team.abbr}:${game.id}`,
+    teamSide: pickHome ? "home" : "away",
   });
 }
 
@@ -380,6 +403,8 @@ export function scoreGameTotalPick(game: Game): PickLeg {
     ],
     riskNote: "Totals carry bullpen and umpire-zone variance; weather can shift pregame.",
     subjectKey: `total:${game.id}`,
+    line,
+    overUnder: side,
   });
 }
 
@@ -425,6 +450,8 @@ export function scoreFirstFiveTotalPick(game: Game): PickLeg {
     ],
     riskNote: "Removes bullpen variance but a single big inning decides the bet.",
     subjectKey: `f5:${game.id}`,
+    line,
+    overUnder: side,
   });
 }
 

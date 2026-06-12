@@ -55,11 +55,23 @@ function combineLegs(legs: PickLeg[], type: RiskMode, name: string): Parlay {
   };
 }
 
+/**
+ * Player legs must be CONFIRMED or PROJECTED_REGULAR. EXCLUDED and PENDING
+ * players never make a parlay; confirmed-only mode tightens it to CONFIRMED.
+ * Legs without lineupStatus are non-player markets (ML, totals) - always allowed.
+ */
+function passesEligibility(leg: PickLeg, confirmedOnly: boolean): boolean {
+  if (!leg.lineupStatus) return true;
+  if (confirmedOnly) return leg.lineupStatus === "CONFIRMED";
+  return leg.lineupStatus === "CONFIRMED" || leg.lineupStatus === "PROJECTED_REGULAR";
+}
+
 function buildParlayForProfile(pool: PickLeg[], profile: ProfileConfig, settings: AppSettings): Parlay {
   const minProbability = Math.max(profile.minProbability, settings.minProbability);
   const minEdge = Math.max(profile.minEdge, settings.minEdge);
 
   const eligible = pool
+    .filter((l) => passesEligibility(l, settings.excludeUnconfirmedLineups))
     .filter((l) => l.confidenceLabel !== "Avoid")
     .filter((l) => l.modelProbability >= minProbability)
     .filter((l) => l.edge >= minEdge)
